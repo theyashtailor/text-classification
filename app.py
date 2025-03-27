@@ -1,32 +1,27 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from fastai.text.all import *
-import os
 import requests
 
-# Auto-download model from Google Drive if not present
-MODEL_URL = "https://drive.google.com/uc?export=download&id=1wyTRTGIQFSIDoeADJZMwxpD0kV8cmcgJ"
-MODEL_PATH = "news_category_classifier.pkl"
+def download_file_from_google_drive(file_id, destination):
+    URL = "https://docs.google.com/uc?export=download"
 
-if not os.path.exists(MODEL_PATH):
-    print("Downloading model from Google Drive...")
-    response = requests.get(MODEL_URL)
-    with open(MODEL_PATH, "wb") as f:
-        f.write(response.content)
+    session = requests.Session()
+    response = session.get(URL, params={'id': file_id}, stream=True)
+    token = get_confirm_token(response)
 
-# Load model
-learn = load_learner(MODEL_PATH)
+    if token:
+        params = {'id': file_id, 'confirm': token}
+        response = session.get(URL, params=params, stream=True)
 
-# FastAPI setup
-class NewsRequest(BaseModel):
-    text: str
+    save_response_content(response, destination)
 
-app = FastAPI(title="News Category Classifier")
+def get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
 
-@app.post("/predict")
-def predict_category(req: NewsRequest):
-    pred_class, pred_idx, probs = learn.predict(req.text)
-    return {
-        "prediction": str(pred_class),
-        "confidence": round(probs[pred_idx].item(), 4)
-    }
+def save_response_content(response, destination):
+    CHUNK_SIZE = 32768
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(CHUNK_SIZE):
+            if chunk:
+                f.write(chunk)
