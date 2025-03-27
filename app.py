@@ -1,27 +1,24 @@
+from fastapi import FastAPI, HTTPException
+from fastapi.responses import StreamingResponse
 import requests
+from io import BytesIO
 
-def download_file_from_google_drive(file_id, destination):
-    URL = "https://docs.google.com/uc?export=download"
+app = FastAPI()
 
-    session = requests.Session()
-    response = session.get(URL, params={'id': file_id}, stream=True)
-    token = get_confirm_token(response)
+def download_file_from_google_drive(file_id: str, token: str):
+    """
+    Downloads a file from Google Drive using the file ID and an authorization token.
+    """
+    headers = {"Authorization": f"Bearer {token}"}
+    response = requests.get(f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media", headers=headers)
+    if response.status_code != 200:
+        raise HTTPException(status_code=response.status_code, detail="Failed to download file from Google Drive.")
+    return BytesIO(response.content)
 
-    if token:
-        params = {'id': file_id, 'confirm': token}
-        response = session.get(URL, params=params, stream=True)
-
-    save_response_content(response, destination)
-
-def get_confirm_token(response):
-    for key, value in response.cookies.items():
-        if key.startswith('download_warning'):
-            return value
-    return None
-
-def save_response_content(response, destination):
-    CHUNK_SIZE = 32768
-    with open(destination, "wb") as f:
-        for chunk in response.iter_content(CHUNK_SIZE):
-            if chunk:
-                f.write(chunk)
+@app.get("/download/{file_id}")
+async def download(file_id: str, token: str):
+    """
+    Endpoint to download a file from Google Drive given its file ID and an authorization token.
+    """
+    file_stream = download_file_from_google_drive(file_id, token)
+    return StreamingResponse(file_stream, media_type='application/octet-stream', headers={"Content-Disposition": f"attachment; filename={file_id}"})
